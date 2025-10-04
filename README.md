@@ -1,17 +1,17 @@
 # Polymers Protocol Rewards System
 
 **⚠️ Disclaimer: Sample / Untested Implementation**  
-This is a demo AI-driven rewards platform on Solana. The code, including AI compliance scoring, token/NFT minting, Wormhole cross-chain bridging, and optimizations, is illustrative and **untested**. Do not deploy on mainnet without thorough testing, validation, and professional security audits. Use at your own risk.
+This is a demo AI-driven rewards platform on Solana. The code, including AI compliance scoring, token/NFT minting, Wormhole cross-chain bridging, relayer automation, and optimizations, is illustrative and **untested**. Do not deploy on mainnet without thorough testing, validation, and professional security audits. Use at your own risk.
 
 ## Overview
 
 Polymers Protocol is a multi-tenant, AI-driven Solana program for minting **PLY**, **CARB**, **EWASTE** tokens, and **ESG NFTs** based on IoT telemetry and ESG metrics. It features:
-- **AI-Driven Compliance Scoring**: Evaluates telemetry (e.g., contamination, temperature) and ESG metrics (e.g., carbon offset) for reward eligibility.
+- **AI-Driven Compliance Scoring**: Evaluates telemetry (e.g., contamination, temperature) and ESG metrics (e.g., carbon offset) using fixed-point math (~3,000 CUs).
 - **Multi-Tenant Support**: Partner-specific multipliers and thresholds.
 - **Multi-Sig Governance**: Requires ≥2 admin approvals via Squads.
-- **Cross-Chain Bridging**: Emits Wormhole messages for ESG NFT bridging to Ethereum, with automated relayer support.
+- **Cross-Chain Bridging**: Automates ESG NFT bridging to Ethereum via Wormhole with a relayer toolkit.
 - **Real-Time Analytics**: Logs to Supabase for Grafana dashboards.
-- **Optimizations**: Fixed-point arithmetic, reduced account usage, and batched CPIs to minimize compute units (CUs).
+- **Optimizations**: Bitwise validation, reduced accounts, and batched CPIs to stay under 1.4M CU limit.
 
 ---
 
@@ -35,7 +35,12 @@ Polymers Protocol is a multi-tenant, AI-driven Solana program for minting **PLY*
 │   └── deposit.js      # Telemetry submission endpoint
 /relayer
 ├── relayer.ts          # Wormhole relayer for VAA automation
-├── test.ts             # End-to-end test script
+├── test.ts             # Expanded test suite
+├── test/
+│   ├── helpers.ts      # Test utilities
+│   ├── data/
+│   │   ├── valid.json  # Valid test inputs
+│   │   └── invalid.json # Invalid test inputs
 /Anchor.toml
 /Cargo.toml
 /.env
@@ -46,12 +51,13 @@ Polymers Protocol is a multi-tenant, AI-driven Solana program for minting **PLY*
 
 ## Features
 
-- **AI Compliance Scoring**: Validates telemetry and computes scores using fixed-point math for efficiency (~3,000 CUs vs. ~10,000).
-- **Token Minting**: Mints PLY, CARB, EWASTE based on compliance scores and partner multipliers.
-- **ESG NFT Bridging**: Mints NFTs on Solana (Metaplex) and emits optimized Wormhole payloads for Ethereum bridging (~8,000 CUs).
-- **Multi-Sig Governance**: Squads-based approvals, optimized for batch processing.
-- **Analytics**: Supabase logs for Grafana visualization.
-- **Optimizations**: Fixed-point arithmetic, bitwise validation, reduced accounts, and batched CPIs to stay under 1.4M CU limit.
+- **AI Compliance Scoring**: Validates telemetry and computes scores efficiently (~3,000 CUs vs. ~10,000).
+- **Token Minting**: Mints PLY, CARB, EWASTE based on compliance scores.
+- **ESG NFT Bridging**: Mints NFTs on Solana (Metaplex) and automates Ethereum bridging via Wormhole (~8,000 CUs).
+- **Multi-Sig Governance**: Optimized Squads-based approvals with batch processing.
+- **Analytics**: Supabase logs for Grafana visualization and Sentry/Slack alerts.
+- **Relayer Toolkit**: Automates telemetry submission, NFT minting, VAA retrieval, and Ethereum minting.
+- **Optimizations**: Fixed-point arithmetic, bitwise validation, reduced accounts, and batched CPIs.
 
 ---
 
@@ -61,9 +67,10 @@ Polymers Protocol is a multi-tenant, AI-driven Solana program for minting **PLY*
 - **Solana CLI**: ≥1.18
 - **Anchor CLI**: ≥0.30
 - **Node.js**: ≥18
-- **Hardhat**: For Ethereum contract deployment
+- **Hardhat**: For Ethereum deployment
 - **Wormhole SDK**: For relayer and bridging
 - **Supabase CLI**: For analytics
+- **Mocha/Chai**: For relayer tests
 
 Install:
 ```bash
@@ -71,7 +78,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 solana-install init 1.18.0
 cargo install --git https://github.com/coral-xyz/anchor anchor-cli --locked
 npm install -g @supabase/supabase-js hardhat yarn
-yarn add @wormhole-foundation/sdk ethers axios typescript ts-node
+yarn add @wormhole-foundation/sdk ethers axios typescript ts-node mocha chai
 ```
 
 ---
@@ -88,7 +95,7 @@ yarn add @wormhole-foundation/sdk ethers axios typescript ts-node
 2. **Configure `.env`**:
    ```bash
    SOLANA_WALLET='[wallet_keypair]'
-   PROGRAM_ID='YourProgramIdHere'
+   PROGRAM_ID='YourSolanaProgramIdHere'
    WORMHOLE_PROGRAM='worm2ZoG2kUd4vFXhvjh5UUAA9nV4fV3nq3b3U8f8'
    PLY_MINT='[ply_mint_address]'
    CARB_MINT='[carb_mint_address]'
@@ -110,6 +117,7 @@ yarn add @wormhole-foundation/sdk ethers axios typescript ts-node
    anchor --version
    node -v
    npx hardhat --version
+   yarn mocha --version
    ```
 
 ---
@@ -171,7 +179,7 @@ npx hardhat console --network sepolia
 ## AI Compliance Scoring & Rewards
 
 ### Telemetry Validation
-Optimized with bitwise flags to reduce CUs (~2,000 vs. ~5,000):
+Optimized with bitwise flags (~2,000 CUs):
 ```rust
 fn validate_telemetry(deposit: &BatchDeposit) -> Result<(), CustomError> {
     let mut flags: u8 = 0;
@@ -187,7 +195,7 @@ fn validate_telemetry(deposit: &BatchDeposit) -> Result<(), CustomError> {
 ```
 
 ### Compliance Score Calculation
-Uses fixed-point arithmetic (~3,000 CUs):
+Fixed-point arithmetic (~3,000 CUs):
 ```rust
 fn calculate_compliance_score(deposit: &BatchDeposit) -> u64 {
     const SCALE: u64 = 1_000_000;
@@ -200,7 +208,7 @@ fn calculate_compliance_score(deposit: &BatchDeposit) -> u64 {
 ```
 
 ### Reward Calculation
-Fixed-point math for efficiency (~2,000 CUs):
+Fixed-point math (~2,000 CUs):
 ```rust
 fn calculate_rewards(deposit: &BatchDeposit, compliance_score: u64) -> (u64, u64, u64) {
     const SCALE: u64 = 1_000_000;
@@ -258,24 +266,89 @@ fn emit_wormhole_message<'info>(ctx: &Context<MintEsgNft>, nft_mint: Pubkey, tar
    solana-test-validator &
    ```
 
-2. **Anchor Tests**:
+2. **API Server**:
+   ```bash
+   cd api && node rewards/deposit.js
+   ```
+
+3. **Anchor Tests**:
    ```bash
    anchor test
    ```
 
-3. **Scenarios**:
-   - Vault initialization
-   - Telemetry validation (valid: `amount: 1000`; invalid: `amount: 2_000_000`)
-   - Compliance scoring (e.g., score ≥500_000)
-   - Token minting (PLY, CARB, EWASTE)
-   - NFT minting & Wormhole emission
-   - Multi-sig approvals (test <2 approvals failure)
-   - CU usage: `solana logs | grep "consumed"`
+4. **Relayer Tests**:
+   ```bash
+   cd relayer && yarn test
+   ```
 
-4. **Cross-Chain**:
-   - Mint NFT on Solana devnet.
+5. **Scenarios**:
+   - **Valid Workflow**: Submits telemetry, mints NFT, retrieves VAA, mints wrapped NFT.
+   - **Invalid Telemetry**: Fails on `amount: 2000000` (`InvalidAmount`).
+   - **Low Compliance Score**: Fails on high `contamination: 50` (`LowComplianceScore`).
+   - **Invalid VAA**: Rejects malformed VAAs.
+   - **CU Usage**: Verifies <1.4M CUs (`solana logs | grep "consumed"`).
+   - **Network Delay**: Handles 5s VAA latency.
+
+6. **Cross-Chain**:
+   - Mint NFT: `anchor run mint_nft --args target_chain:2 recipient:0xAbc123 metadata_uri:https://example.com/nft_metadata.json`
    - Retrieve VAA: `curl https://wormhole.com/api/v1/vaa?source_chain=solana&mint=NFT_MINT`
-   - Submit to Sepolia: Verify wrapped NFT on Etherscan.
+   - Verify on Etherscan.
+
+7. **Relayer Test Suite** (`relayer/test.ts`):
+   ```typescript
+   describe('Polymers Relayer Workflow', () => {
+       it('should complete valid end-to-end workflow', async () => {
+           const depositId = await submitTelemetry(validTelemetry);
+           const mint = await triggerNftMint(depositId, validNft);
+           const vaa = await mockVaa(mint, true);
+           const txHash = await submitVaaToEthereum(vaa);
+           expect(txHash).to.be.a('string');
+       });
+       it('should fail on invalid telemetry', async () => {
+           try { await submitTelemetry(invalidTelemetry); expect.fail(); } catch (e) { expect(e.message).to.include('InvalidAmount'); }
+       });
+       // ... other tests: low score, invalid VAA, CU usage, delay
+   });
+   ```
+
+---
+
+## Automated End-to-End Workflow
+
+```bash
+# Submit telemetry
+node ./api/rewards/deposit.js --amount 1000 --contamination 5 --temperature 25 --carbon_offset 50 --recyclability 80
+
+# Mint NFT
+anchor run mint_nft --args target_chain:2 recipient:0xAbc123 metadata_uri:https://example.com/nft_metadata.json
+
+# Run relayer
+cd relayer && yarn start
+
+# Run tests
+cd relayer && yarn test
+```
+
+---
+
+## Workflow Diagram
+
+```mermaid
+flowchart TD
+    A[IoT Telemetry] --> B[Validate Telemetry]
+    B --> C{Valid?}
+    C -- No --> D[Error]
+    C -- Yes --> E[Calculate Compliance Score]
+    E --> F[Compute Rewards]
+    F --> G{Score >= 0.5?}
+    G -- No --> H[No Rewards]
+    G -- Yes --> I[Multi-Sig Approval]
+    I --> J[Mint Tokens & NFT]
+    J --> K[Emit Wormhole Message]
+    K --> L[Relayer: Retrieve VAA]
+    L --> M[Ethereum: Mint Wrapped NFT]
+    M --> N[Supabase / Analytics]
+```
 
 ---
 
@@ -313,53 +386,20 @@ Automates VAA delivery for ESG NFT bridging.
    }
    ```
 
-4. **Test**:
-   ```bash
-   yarn test
-   ```
-
----
-
-## Automated End-to-End Workflow
-
-```bash
-# Submit telemetry
-node ./api/rewards/deposit.js --amount 1000 --contamination 5 --temperature 25 --carbon_offset 50 --recyclability 80
-
-# Mint NFT
-anchor run mint_nft --args target_chain:2 recipient:0xAbc123 metadata_uri:https://example.com/nft_metadata.json
-
-# Run relayer
-cd relayer && yarn start
-```
-
----
-
-## Workflow Diagram
-
-```mermaid
-flowchart TD
-    A[IoT Telemetry] --> B[Validate Telemetry]
-    B --> C{Valid?}
-    C -- No --> D[Error]
-    C -- Yes --> E[Calculate Compliance Score]
-    E --> F[Compute Rewards]
-    F --> G{Score >= 0.5?}
-    G -- No --> H[No Rewards]
-    G -- Yes --> I[Multi-Sig Approval]
-    I --> J[Mint Tokens & NFT]
-    J --> K[Emit Wormhole Message]
-    K --> L[Relayer: Retrieve VAA]
-    L --> M[Ethereum: Mint Wrapped NFT]
-    M --> N[Supabase / Analytics]
-```
+4. **Test Scenarios**:
+   - Valid workflow: Completes bridging.
+   - Invalid telemetry: Fails validation.
+   - Low score: Rejects minting.
+   - Invalid VAA: Rejects Ethereum submission.
+   - CU usage: Verifies <1.4M CUs.
+   - Network delay: Handles 5s latency.
 
 ---
 
 ## Optimizations
 
-- **Compute Units**: Reduced by ~15,000–50,000 CUs using fixed-point math, bitwise validation, and batched CPIs.
-- **Accounts**: Minimized with PDAs and read-only accounts (~2,000 CUs saved).
+- **Compute Units**: ~15,000–50,000 CUs saved using fixed-point math, bitwise validation, and batched CPIs.
+- **Accounts**: PDAs and read-only accounts (~2,000 CUs saved).
 - **Wormhole**: Fixed-size payloads (~2,000 CUs saved).
 - **Off-Chain**: Precompute telemetry validation in `/api/rewards/deposit`.
 
@@ -367,20 +407,21 @@ flowchart TD
 
 ## Security Considerations
 
-- Audit for overflow in fixed-point math.
-- Validate PDAs and Wormhole payloads.
-- Ensure multi-sig enforces ≥2 approvals.
-- Monitor Wormhole Guardian risks (e.g., past $320M exploit).<grok:render type="render_inline_citation"><argument name="citation_id">15</argument></grok:render>
-- Log errors to Supabase/Sentry.
+- Audit fixed-point math for overflow.
+- Validate PDAs and Wormhole payloads (`0x01` discriminator, `PROGRAM_ID`).
+- Enforce multi-sig approvals (≥2).
+- Monitor Wormhole Guardian risks (e.g., $320M exploit, 2022).<grok:render type="render_inline_citation"><argument name="citation_id">15</argument></grok:render>
+- Log errors to Supabase/Sentry for alerts.
 
 ---
 
 ## Future Enhancements
 
 - **TensorFlow.js**: Anomaly detection for telemetry fraud.
-- **Wormhole SDK**: Full relayer automation with batching.
-- **Grafana**: Visualize compliance scores and bridging metrics.
+- **Wormhole SDK**: Batch VAA submissions.
+- **Grafana**: Visualize bridging metrics and compliance scores.
 - **Versioned Transactions**: Optimize Solana fees.
+- **Spy Daemon**: Real-time VAA subscription.
 - **Audits**: Engage Trail of Bits for mainnet readiness.
 
 ---
@@ -392,7 +433,7 @@ flowchart TD
 3. Commit and push.
 4. Open pull request.
 
-Contact: `support@polymersprotocol.com`.
+Contact: `support@polymersprotocol.org`.
 
 ---
 
