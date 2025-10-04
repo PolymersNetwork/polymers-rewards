@@ -579,11 +579,9 @@ anchor run mint_esg_nft --args deposit_id:"d20251004-smartbin-123" esg_metrics:{
 
 ## 📧 Contact
 
-For issues or feature requests, open a GitHub issue or contact the team at support@polymersprotocol.com.
+For issues or feature requests, open a GitHub issue or contact the team at support@polymersprotocol.org.
 
 ---
-Generated on October 04, 2025
-```
 
 **Purpose**: Provides comprehensive documentation for developers, including setup, deployment, testing, and integration details.
 
