@@ -89,7 +89,7 @@ Polymers Protocol is a multi-tenant, AI-driven Solana program for minting **PLY*
 - **Supabase CLI**: For analytics
 - **Mocha/Chai**: For relayer tests
 - **TensorFlow.js**: For fraud detection
-- **React**: For frontend dashboard
+- **Nextjs / React**: For frontend dashboard
 
 Install:
 ```bash
