@@ -1,12 +1,13 @@
 # Polymers Protocol Rewards System
 
 **⚠️ Disclaimer: Sample / Untested Implementation**  
-This is a demo AI-driven rewards platform on Solana. The code, including AI compliance scoring, token/NFT minting, Wormhole cross-chain bridging, relayer automation, and optimizations, is illustrative and **untested**. Do not deploy on mainnet without thorough testing, validation, and professional security audits. Use at your own risk.
+This is a demo AI-driven rewards platform on Solana. The code, including AI compliance scoring, token/NFT minting, Wormhole cross-chain bridging, relayer automation, optimizations, and TensorFlow.js fraud detection, is illustrative and **untested**. Do not deploy on mainnet without thorough testing, validation, and professional security audits. Use at your own risk.
 
 ## Overview
 
-Polymers Protocol's Reward System is a multi-tenant, AI-driven Solana program for minting **PLY**, **CARB**, **EWASTE** tokens, and **ESG NFTs** based on IoT telemetry and ESG metrics. It features:
+Polymers Protocol is a multi-tenant, AI-driven Solana program for minting **PLY**, **CARB**, **EWASTE** tokens, and **ESG NFTs** based on IoT telemetry and ESG metrics. It features:
 - **AI-Driven Compliance Scoring**: Evaluates telemetry (e.g., contamination, temperature) and ESG metrics (e.g., carbon offset) using fixed-point math (~3,000 CUs).
+- **Fraud Detection**: TensorFlow.js-based anomaly detection for telemetry fraud (e.g., manipulated weights).
 - **Multi-Tenant Support**: Partner-specific multipliers and thresholds.
 - **Multi-Sig Governance**: Requires ≥2 admin approvals via Squads.
 - **Cross-Chain Bridging**: Automates ESG NFT bridging to Ethereum via Wormhole with a relayer toolkit.
@@ -32,7 +33,7 @@ Polymers Protocol's Reward System is a multi-tenant, AI-driven Solana program fo
 ├── integration.rs      # Anchor tests
 /api
 ├── rewards
-│   └── deposit.js      # Telemetry submission endpoint
+│   └── deposit.js      # Telemetry submission endpoint with TF.js fraud detection
 /relayer
 ├── relayer.ts          # Wormhole relayer for VAA automation
 ├── test.ts             # Expanded test suite
@@ -52,6 +53,7 @@ Polymers Protocol's Reward System is a multi-tenant, AI-driven Solana program fo
 ## Features
 
 - **AI Compliance Scoring**: Validates telemetry and computes scores efficiently (~3,000 CUs vs. ~10,000).
+- **Fraud Detection**: TensorFlow.js autoencoder flags anomalous telemetry (e.g., fake weights) in `/api/rewards/deposit`.
 - **Token Minting**: Mints PLY, CARB, EWASTE based on compliance scores.
 - **ESG NFT Bridging**: Mints NFTs on Solana (Metaplex) and automates Ethereum bridging via Wormhole (~8,000 CUs).
 - **Multi-Sig Governance**: Optimized Squads-based approvals with batch processing.
@@ -71,6 +73,7 @@ Polymers Protocol's Reward System is a multi-tenant, AI-driven Solana program fo
 - **Wormhole SDK**: For relayer and bridging
 - **Supabase CLI**: For analytics
 - **Mocha/Chai**: For relayer tests
+- **TensorFlow.js**: For fraud detection
 
 Install:
 ```bash
@@ -78,7 +81,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 solana-install init 1.18.0
 cargo install --git https://github.com/coral-xyz/anchor anchor-cli --locked
 npm install -g @supabase/supabase-js hardhat yarn
-yarn add @wormhole-foundation/sdk ethers axios typescript ts-node mocha chai
+yarn add @wormhole-foundation/sdk ethers axios typescript ts-node mocha chai @tensorflow/tfjs-node
 ```
 
 ---
@@ -118,6 +121,7 @@ yarn add @wormhole-foundation/sdk ethers axios typescript ts-node mocha chai
    node -v
    npx hardhat --version
    yarn mocha --version
+   node -e "require('@tensorflow/tfjs-node')"
    ```
 
 ---
@@ -176,7 +180,7 @@ npx hardhat console --network sepolia
 
 ---
 
-## AI Compliance Scoring & Rewards
+## AI Compliance Scoring & Fraud Detection
 
 ### Telemetry Validation
 Optimized with bitwise flags (~2,000 CUs):
@@ -233,6 +237,30 @@ fn emit_wormhole_message<'info>(ctx: &Context<MintEsgNft>, nft_mint: Pubkey, tar
 }
 ```
 
+### TensorFlow.js Fraud Detection
+Detects telemetry fraud (e.g., fake weights) using an autoencoder in `/api/rewards/deposit`:
+```javascript
+// api/rewards/deposit.js
+const tf = require('@tensorflow/tfjs-node');
+
+const autoencoder = tf.model(/* Load trained model */);
+const threshold = 0.15; // Mean + 3σ from training
+
+app.post('/api/rewards/deposit', async (req, res) => {
+  const telemetry = req.body; // {amount, contamination, ...}
+  const normalized = normalizeTelemetry(telemetry);
+  const mse = computeMSE(autoencoder, normalized);
+  if (mse > threshold) {
+    await supabase.from('fraud_logs').insert({ telemetry, mse, flagged: true });
+    return res.status(400).json({ error: 'Fraud detected' });
+  }
+  // Proceed to Solana mint
+});
+```
+- **Training**: Train on normal telemetry (e.g., 10k samples) using Node.js (~2min).
+- **Inference**: ~10ms on Node.js with WebGL.
+- **Integration**: Flags anomalies before Solana submission, logs to Supabase.
+
 ---
 
 ## Example Inputs
@@ -245,6 +273,17 @@ fn emit_wormhole_message<'info>(ctx: &Context<MintEsgNft>, nft_mint: Pubkey, tar
   "temperature": 25,
   "carbon_offset": 50,
   "recyclability": 80
+}
+```
+
+**Fraudulent Telemetry**:
+```json
+{
+  "amount": 2000000,
+  "contamination": 50,
+  "temperature": -10,
+  "carbon_offset": 0,
+  "recyclability": 20000
 }
 ```
 
@@ -286,6 +325,7 @@ fn emit_wormhole_message<'info>(ctx: &Context<MintEsgNft>, nft_mint: Pubkey, tar
    - **Invalid Telemetry**: Fails on `amount: 2000000` (`InvalidAmount`).
    - **Low Compliance Score**: Fails on high `contamination: 50` (`LowComplianceScore`).
    - **Invalid VAA**: Rejects malformed VAAs.
+   - **Fraud Detection**: Flags fraudulent telemetry (e.g., `amount: 2000000`) with TF.js.
    - **CU Usage**: Verifies <1.4M CUs (`solana logs | grep "consumed"`).
    - **Network Delay**: Handles 5s VAA latency.
 
@@ -304,8 +344,8 @@ fn emit_wormhole_message<'info>(ctx: &Context<MintEsgNft>, nft_mint: Pubkey, tar
            const txHash = await submitVaaToEthereum(vaa);
            expect(txHash).to.be.a('string');
        });
-       it('should fail on invalid telemetry', async () => {
-           try { await submitTelemetry(invalidTelemetry); expect.fail(); } catch (e) { expect(e.message).to.include('InvalidAmount'); }
+       it('should fail on fraudulent telemetry', async () => {
+           try { await submitTelemetry(fraudulentTelemetry); expect.fail(); } catch (e) { expect(e.message).to.include('Fraud detected'); }
        });
        // ... other tests: low score, invalid VAA, CU usage, delay
    });
@@ -335,19 +375,22 @@ cd relayer && yarn test
 
 ```mermaid
 flowchart TD
-    A[IoT Telemetry] --> B[Validate Telemetry]
-    B --> C{Valid?}
-    C -- No --> D[Error]
-    C -- Yes --> E[Calculate Compliance Score]
-    E --> F[Compute Rewards]
-    F --> G{Score >= 0.5?}
-    G -- No --> H[No Rewards]
-    G -- Yes --> I[Multi-Sig Approval]
-    I --> J[Mint Tokens & NFT]
-    J --> K[Emit Wormhole Message]
-    K --> L[Relayer: Retrieve VAA]
-    L --> M[Ethereum: Mint Wrapped NFT]
-    M --> N[Supabase / Analytics]
+    A[IoT Telemetry] --> B[TF.js Fraud Detection]
+    B --> C{Fraud?}
+    C -- Yes --> D[Reject]
+    C -- No --> E[Validate Telemetry]
+    E --> F{Valid?}
+    F -- No --> G[Error]
+    F -- Yes --> H[Calculate Compliance Score]
+    H --> I[Compute Rewards]
+    I --> J{Score >= 0.5?}
+    J -- No --> K[No Rewards]
+    J -- Yes --> L[Multi-Sig Approval]
+    L --> M[Mint Tokens & NFT]
+    M --> N[Emit Wormhole Message]
+    N --> O[Relayer: Retrieve VAA]
+    O --> P[Ethereum: Mint Wrapped NFT]
+    P --> Q[Supabase / Analytics]
 ```
 
 ---
@@ -388,6 +431,7 @@ Automates VAA delivery for ESG NFT bridging.
 
 4. **Test Scenarios**:
    - Valid workflow: Completes bridging.
+   - Fraudulent telemetry: Rejects via TF.js.
    - Invalid telemetry: Fails validation.
    - Low score: Rejects minting.
    - Invalid VAA: Rejects Ethereum submission.
@@ -401,7 +445,7 @@ Automates VAA delivery for ESG NFT bridging.
 - **Compute Units**: ~15,000–50,000 CUs saved using fixed-point math, bitwise validation, and batched CPIs.
 - **Accounts**: PDAs and read-only accounts (~2,000 CUs saved).
 - **Wormhole**: Fixed-size payloads (~2,000 CUs saved).
-- **Off-Chain**: Precompute telemetry validation in `/api/rewards/deposit`.
+- **Off-Chain**: Precompute telemetry validation and fraud detection in `/api/rewards/deposit`.
 
 ---
 
@@ -411,15 +455,16 @@ Automates VAA delivery for ESG NFT bridging.
 - Validate PDAs and Wormhole payloads (`0x01` discriminator, `PROGRAM_ID`).
 - Enforce multi-sig approvals (≥2).
 - Monitor Wormhole Guardian risks (e.g., $320M exploit, 2022).<grok:render type="render_inline_citation"><argument name="citation_id">15</argument></grok:render>
+- Ensure TF.js model integrity (e.g., no poisoned training data).
 - Log errors to Supabase/Sentry for alerts.
 
 ---
 
 ## Future Enhancements
 
-- **TensorFlow.js**: Anomaly detection for telemetry fraud.
+- **TensorFlow.js**: Expand anomaly detection with LSTM for time-series telemetry or Isolation Forests for batch scoring.
 - **Wormhole SDK**: Batch VAA submissions.
-- **Grafana**: Visualize bridging metrics and compliance scores.
+- **Grafana**: Visualize fraud metrics, compliance scores, and bridging latency.
 - **Versioned Transactions**: Optimize Solana fees.
 - **Spy Daemon**: Real-time VAA subscription.
 - **Audits**: Engage Trail of Bits for mainnet readiness.
