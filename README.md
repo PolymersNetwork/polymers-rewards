@@ -5,7 +5,7 @@ This is a demo AI-driven rewards platform on Solana. The code, including AI comp
 
 ## Overview
 
-Polymers Protocol is a multi-tenant, AI-driven Solana program for minting **PLY**, **CARB**, **EWASTE** tokens, and **ESG NFTs** based on IoT telemetry and ESG metrics. It features:
+Polymers Protocol's Rewards System is a multi-tenant, AI-driven Solana program for minting **PLY**, **CARB**, **EWASTE** tokens, and **ESG NFTs** based on IoT telemetry and ESG metrics. It features:
 - **AI-Driven Compliance Scoring**: Evaluates telemetry (e.g., contamination, temperature) using fixed-point math (~3,000 CUs).
 - **Fraud Detection**: TensorFlow.js autoencoder flags anomalies (e.g., fake weights) in backend API and frontend dashboard.
 - **Multi-Tenant Support**: Partner-specific multipliers and thresholds.
