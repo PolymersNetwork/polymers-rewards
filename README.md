@@ -5,7 +5,7 @@ This is a demo AI-driven rewards platform on Solana. The code, including AI comp
 
 ## Overview
 
-Polymers Protocol's Rewards System is a multi-tenant, AI-driven Solana program for minting **PLY**, **CARB**, **EWASTE** tokens, and **ESG NFTs** based on IoT telemetry and ESG metrics. It features:
+Polymers Protocol is a multi-tenant, AI-driven Solana program for minting **PLY**, **CARB**, **EWASTE** tokens, and **ESG NFTs** based on IoT telemetry and ESG metrics. It features:
 - **AI-Driven Compliance Scoring**: Evaluates telemetry (e.g., contamination, temperature) using fixed-point math (~3,000 CUs).
 - **Fraud Detection**: TensorFlow.js autoencoder flags anomalies (e.g., fake weights) in backend API and frontend dashboard.
 - **Multi-Tenant Support**: Partner-specific multipliers and thresholds.
@@ -66,7 +66,7 @@ Polymers Protocol's Rewards System is a multi-tenant, AI-driven Solana program f
 ## Features
 
 - **AI Compliance Scoring**: Validates telemetry and computes scores efficiently (~3,000 CUs).
-- **Fraud Detection**: TensorFlow.js autoencoder flags anomalies in backend API and frontend dashboard.
+- **Fraud Detection**: TensorFlow.js autoencoder flags anomalies in backend API and frontend dashboard (~50ms inference).
 - **Token Minting**: Mints PLY, CARB, EWASTE based on compliance scores.
 - **ESG NFT Bridging**: Mints NFTs on Solana (Metaplex) and automates Ethereum bridging via Wormhole (~8,000 CUs).
 - **Multi-Sig Governance**: Optimized Squads-based approvals with batch processing.
@@ -211,7 +211,14 @@ npx hardhat console --network sepolia
    ```
 
 3. **Deploy** (e.g., Vercel):
-   - Configure `vercel.json` for Express.
+   - Configure `vercel.json`:
+     ```json
+     {
+       "version": 2,
+       "builds": [{ "src": "rewards/deposit.js", "use": "@vercel/node" }],
+       "routes": [{ "src": "/api/rewards/deposit", "dest": "rewards/deposit.js" }]
+     }
+     ```
    - Run: `vercel deploy`.
 
 ### Frontend Dashboard Deployment
@@ -245,7 +252,7 @@ npx hardhat console --network sepolia
 
 3. **Deploy** (e.g., AWS Lambda):
    - Package: `zip -r relayer.zip .`
-   - Deploy via AWS CLI.
+   - Deploy via AWS CLI: `aws lambda update-function-code --function-name PolymersRelayer --zip-file fileb://relayer.zip`
 
 ---
 
@@ -253,11 +260,11 @@ npx hardhat console --network sepolia
 
 ### Overview
 The backend is a Node.js API (`/api/rewards/deposit`) that:
-- Validates IoT telemetry (e.g., amount, contamination).
-- Performs TensorFlow.js-based fraud detection using an autoencoder.
-- Submits valid telemetry to the Solana program (`mint_nft.rs`).
-- Integrates with the relayer for Wormhole VAA retrieval and Ethereum bridging.
-- Logs telemetry, fraud scores, and errors to Supabase.
+- Validates IoT telemetry (e.g., `amount <= 1_000_000`).
+- Runs TensorFlow.js autoencoder for fraud detection (~50ms inference).
+- Submits valid telemetry to the Solana program (`mint_nft.rs`) via Anchor SDK.
+- Triggers the Wormhole relayer for VAA retrieval and Ethereum bridging.
+- Logs telemetry, fraud scores, and errors to Supabase (`telemetry_logs`, `fraud_logs`, `errors`).
 
 ### API Endpoint
 **`POST /api/rewards/deposit`**:
@@ -265,8 +272,8 @@ The backend is a Node.js API (`/api/rewards/deposit`) that:
 - **Processing**:
   - Validates inputs (e.g., `Number.isFinite(telemetry.amount)`).
   - Runs TF.js autoencoder (MSE > 0.15 flags fraud).
-  - Submits to Solana program via Anchor SDK.
-  - Logs to Supabase (`telemetry_logs`, `fraud_logs`, `errors`).
+  - Submits to Solana program.
+  - Logs to Supabase.
 - **Output**: `{ deposit_id: "xyz" }` or `{ error: "Fraud detected" }`.
 
 **Example Code** (`api/rewards/deposit.js`):
@@ -280,8 +287,14 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 app.use(express.json());
 app.use(rateLimit({ windowMs: 24 * 60 * 60 * 1000, max: 100 })); // 100/day
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  next();
+});
+
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const autoencoder = tf.model(/* Load trained model */);
+const autoencoder = tf.loadLayersModel('file://./models/autoencoder.json');
 const threshold = 0.15;
 
 function validateTelemetry(telemetry) {
@@ -289,14 +302,24 @@ function validateTelemetry(telemetry) {
     Number.isFinite(telemetry.amount) &&
     telemetry.amount > 0 &&
     telemetry.amount <= 1_000_000 &&
-    Number.isFinite(telemetry.contamination)
+    Number.isFinite(telemetry.contamination) &&
+    Number.isFinite(telemetry.temperature) &&
+    Number.isFinite(telemetry.carbon_offset) &&
+    Number.isFinite(telemetry.recyclability)
   );
 }
 
 function normalizeTelemetry(telemetry) {
-  // Normalize to mean=0, std=1
-  const values = Object.values(telemetry);
-  return tf.tensor2d([values], [1, values.length]);
+  const values = [
+    telemetry.amount,
+    telemetry.contamination,
+    telemetry.temperature,
+    telemetry.carbon_offset,
+    telemetry.recyclability
+  ];
+  const tensor = tf.tensor2d([values], [1, 5]);
+  const { mean, variance } = tf.moments(tensor, 0);
+  return tensor.sub(mean).div(variance.sqrt());
 }
 
 function computeMSE(model, input) {
@@ -311,7 +334,7 @@ app.post('/api/rewards/deposit', async (req, res) => {
     return res.status(400).json({ error: 'Invalid telemetry' });
   }
   const normalized = normalizeTelemetry(telemetry);
-  const mse = computeMSE(autoencoder, normalized);
+  const mse = computeMSE(await autoencoder, normalized);
   if (mse > threshold) {
     await supabase.from('fraud_logs').insert({ telemetry, mse, flagged: true });
     return res.status(400).json({ error: 'Fraud detected' });
@@ -330,15 +353,15 @@ app.listen(3000, () => console.log('API running on port 3000'));
 ```
 
 ### Integration
-- **Solana**: Uses Anchor SDK to call `mint_nft.rs`.
-- **Wormhole**: Triggers relayer for VAA retrieval and Ethereum submission.
-- **Supabase**: Logs telemetry, fraud scores, and errors.
+- **Solana**: Uses Anchor SDK to call `mint_nft.rs` for token/NFT minting.
+- **Wormhole**: Triggers relayer for VAA retrieval and Ethereum submission (`WrappedEsgNFT.sol`).
+- **Supabase**: Logs to `telemetry_logs`, `fraud_logs`, `errors` tables with RLS.
 
 ### Security
-- **Rate Limiting**: `express-rate-limit` caps at 100 requests/day.
-- **CORS**: Restrict to `http://localhost:5173` (frontend).
-- **Input Sanitization**: Validate numeric fields.
-- **Model Integrity**: Verify TF.js model weights hash.
+- **Rate Limiting**: Caps at 100 requests/day using `express-rate-limit`.
+- **CORS**: Restricts to `http://localhost:5173`.
+- **Input Sanitization**: Validates numeric fields.
+- **Model Integrity**: Verifies TF.js model weights hash.
 
 ---
 
@@ -346,9 +369,9 @@ app.listen(3000, () => console.log('API running on port 3000'));
 
 ### Overview
 The frontend is a React-based dashboard (built with Vite) that:
-- Submits IoT telemetry via `TelemetryForm.jsx`.
+- Submits IoT telemetry via `TelemetryForm.jsx` to `/api/rewards/deposit`.
 - Visualizes fraud detection results using TensorFlow.js and Recharts in `FraudViz.jsx`.
-- Tracks NFT minting and bridging status in `NftTracker.jsx`.
+- Tracks NFT minting and bridging status in `NftTracker.jsx` using Supabase subscriptions.
 - Queries Supabase for real-time analytics (e.g., compliance scores, fraud logs).
 
 ### Setup
@@ -376,9 +399,9 @@ The frontend is a React-based dashboard (built with Vite) that:
    ```
 
 ### Components
-- **TelemetryForm.jsx**: Form for telemetry input, submits to `/api/rewards/deposit`.
+- **TelemetryForm.jsx**: Form for submitting telemetry inputs.
 - **FraudViz.jsx**: Visualizes fraud scores (MSE) with Recharts (red for MSE > 0.15).
-- **NftTracker.jsx**: Displays Solana NFT mints and Ethereum bridging status.
+- **NftTracker.jsx**: Displays Solana NFT mints and Ethereum bridging status via Supabase.
 
 **Example Code** (`frontend/src/App.jsx`):
 ```jsx
@@ -397,6 +420,10 @@ function App() {
   const [fraudScore, setFraudScore] = useState(null);
 
   const handleSubmit = async (data) => {
+    if (!validateTelemetry(data)) {
+      await supabase.from('errors').insert({ error: 'Invalid telemetry' });
+      return alert('Invalid telemetry');
+    }
     const normalized = normalizeTelemetry(data);
     const autoencoder = await tf.loadLayersModel('/models/autoencoder.json');
     const mse = computeMSE(autoencoder, normalized);
@@ -414,6 +441,22 @@ function App() {
       alert('Submission failed');
     }
   };
+
+  function validateTelemetry(data) {
+    return Object.values(data).every(val => Number.isFinite(val) && val >= 0);
+  }
+
+  function normalizeTelemetry(data) {
+    const values = Object.values(data);
+    const tensor = tf.tensor2d([values], [1, values.length]);
+    const { mean, variance } = tf.moments(tensor, 0);
+    return tensor.sub(mean).div(variance.sqrt());
+  }
+
+  function computeMSE(model, input) {
+    const reconstructed = model.predict(input);
+    return tf.mean(tf.pow(input.sub(reconstructed), 2)).dataSync()[0];
+  }
 
   return (
     <div>
@@ -448,11 +491,11 @@ function TelemetryForm({ onSubmit }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <input type="number" name="amount" placeholder="Amount" onChange={handleChange} />
-      <input type="number" name="contamination" placeholder="Contamination" onChange={handleChange} />
-      <input type="number" name="temperature" placeholder="Temperature" onChange={handleChange} />
-      <input type="number" name="carbon_offset" placeholder="Carbon Offset" onChange={handleChange} />
-      <input type="number" name="recyclability" placeholder="Recyclability" onChange={handleChange} />
+      <input type="number" name="amount" placeholder="Amount" onChange={handleChange} required />
+      <input type="number" name="contamination" placeholder="Contamination" onChange={handleChange} required />
+      <input type="number" name="temperature" placeholder="Temperature" onChange={handleChange} required />
+      <input type="number" name="carbon_offset" placeholder="Carbon Offset" onChange={handleChange} required />
+      <input type="number" name="recyclability" placeholder="Recyclability" onChange={handleChange} required />
       <button type="submit">Submit Telemetry</button>
     </form>
   );
@@ -495,14 +538,14 @@ function NftTracker({ telemetry }) {
   useEffect(() => {
     if (telemetry?.deposit_id) {
       const subscription = supabase
-        .from('nft_bridges')
-        .on('INSERT', (payload) => {
+        .channel('nft_bridges')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'nft_bridges' }, (payload) => {
           if (payload.new.deposit_id === telemetry.deposit_id) {
             setStatus(`Bridged: ${payload.new.tx_hash}`);
           }
         })
         .subscribe();
-      return () => supabase.removeSubscription(subscription);
+      return () => supabase.removeChannel(subscription);
     }
   }, [telemetry]);
 
@@ -518,13 +561,13 @@ export default NftTracker;
 ```
 
 ### Supabase Integration
-- **Setup**: Create tables (`telemetry_logs`, `fraud_logs`, `nft_bridges`, `errors`) with row-level security (RLS) enabled.
+- **Setup**: Create tables (`telemetry_logs`, `fraud_logs`, `nft_bridges`, `errors`) with RLS enabled.
 - **Queries**: Fetch recent telemetry and fraud scores for visualization.
-- **Real-Time**: Use Supabase subscriptions for NFT bridging updates.
+- **Real-Time**: Use Supabase subscriptions for NFT bridging updates in `NftTracker.jsx`.
 
 ### Security
-- **XSS Prevention**: Sanitize inputs in `TelemetryForm` (e.g., `parseFloat`).
-- **Supabase RLS**: Restrict data access to authenticated users.
+- **XSS Prevention**: Use `parseFloat` for inputs; avoid `dangerouslySetInnerHTML`.
+- **Supabase RLS**: Restrict data to authenticated users (e.g., `select * from telemetry_logs where user_id = auth.uid()`).
 - **Model Loading**: Serve TF.js models from secure CDN with hash verification.
 
 ---
@@ -586,15 +629,24 @@ fn emit_wormhole_message<'info>(ctx: &Context<MintEsgNft>, nft_mint: Pubkey, tar
 ### TensorFlow.js Fraud Detection
 Detects telemetry fraud in backend and frontend:
 ```javascript
-// api/rewards/deposit.js or frontend/src/models/autoencoder.js
-const tf = require('@tensorflow/tfjs-node');
+// frontend/src/models/autoencoder.js
+const tf = require('@tensorflow/tfjs');
 
-const autoencoder = tf.model(/* Load trained model */);
+// Load model (assumes pre-trained)
+const autoencoder = tf.loadLayersModel('file://./models/autoencoder.json');
 const threshold = 0.15;
 
 function normalizeTelemetry(telemetry) {
-  const values = Object.values(telemetry);
-  return tf.tensor2d([values], [1, values.length]);
+  const values = [
+    telemetry.amount,
+    telemetry.contamination,
+    telemetry.temperature,
+    telemetry.carbon_offset,
+    telemetry.recyclability
+  ];
+  const tensor = tf.tensor2d([values], [1, 5]);
+  const { mean, variance } = tf.moments(tensor, 0);
+  return tensor.sub(mean).div(variance.sqrt());
 }
 
 function computeMSE(model, input) {
@@ -604,12 +656,32 @@ function computeMSE(model, input) {
 
 async function detectFraud(telemetry) {
   const normalized = normalizeTelemetry(telemetry);
-  const mse = computeMSE(autoencoder, normalized);
-  if (mse > threshold) {
-    await supabase.from('fraud_logs').insert({ telemetry, mse, flagged: true });
-    throw new Error('Fraud detected');
-  }
-  return mse;
+  const mse = computeMSE(await autoencoder, normalized);
+  return { mse, isFraud: mse > threshold };
+}
+
+// Training example (run separately)
+async function trainAutoencoder() {
+  const normalData = tf.randomNormal([1000, 5]);
+  const { mean, variance } = tf.moments(normalData, 0);
+  const normalizedNormal = normalData.sub(mean).div(variance.sqrt());
+
+  const input = tf.input({ shape: [5] });
+  const encoder = tf.layers.dense({ units: 32, activation: 'relu' }).apply(input);
+  const latent = tf.layers.dense({ units: 2, activation: 'relu' }).apply(encoder);
+  const decoder = tf.layers.dense({ units: 32, activation: 'relu' }).apply(latent);
+  const output = tf.layers.dense({ units: 5, activation: 'sigmoid' }).apply(decoder);
+
+  const autoencoder = tf.model({ inputs: input, outputs: output });
+  autoencoder.compile({ optimizer: 'adam', loss: 'mse' });
+
+  await autoencoder.fit(normalizedNormal, normalizedNormal, {
+    epochs: 50,
+    batchSize: 32,
+    validationSplit: 0.2,
+    callbacks: tf.callbacks.earlyStopping({ monitor: 'val_loss', patience: 5 })
+  });
+  await autoencoder.save('file://./models/autoencoder');
 }
 ```
 
@@ -679,16 +751,20 @@ async function detectFraud(telemetry) {
 
 6. **Scenarios**:
    - **Valid Workflow**: Submits telemetry, passes fraud detection, mints NFT, retrieves VAA, mints wrapped NFT.
-   - **Fraudulent Telemetry**: Fails on TF.js detection (`amount: 2000000` → `Fraud detected`).
+   - **Fraudulent Telemetry**: Fails on TF.js detection (`amount: 2000000` → MSE > 0.15).
    - **Invalid Telemetry**: Fails on `amount: 2000000` (`InvalidAmount`).
    - **Low Compliance Score**: Fails on high `contamination: 50` (`LowComplianceScore`).
    - **Invalid VAA**: Rejects malformed VAAs.
    - **CU Usage**: Verifies <1.4M CUs (`solana logs | grep "consumed"`).
    - **Network Delay**: Handles 5s VAA latency.
-   - **Frontend Visualization**: Displays fraud scores (red for MSE > 0.15) and NFT status.
+   - **Frontend Visualization**: Displays fraud scores (red for MSE > 0.15) and NFT status updates.
 
 7. **Test Suite** (`relayer/test.ts`):
    ```typescript
+   const { expect } = require('chai');
+   const axios = require('axios');
+   const tf = require('@tensorflow/tfjs-node');
+
    describe('Polymers Relayer Workflow', () => {
        it('should complete valid end-to-end workflow', async () => {
            const depositId = await submitTelemetry(validTelemetry);
@@ -698,10 +774,16 @@ async function detectFraud(telemetry) {
            expect(txHash).to.be.a('string');
        });
        it('should fail on fraudulent telemetry', async () => {
-           try { await submitTelemetry(fraudulentTelemetry); expect.fail(); } catch (e) { expect(e.message).to.include('Fraud detected'); }
+           try {
+               await submitTelemetry(fraudulentTelemetry);
+               expect.fail();
+           } catch (e) {
+               expect(e.message).to.include('Fraud detected');
+           }
        });
        it('should visualize fraud in frontend', async () => {
-           const mse = await detectFraud(fraudulentTelemetry);
+           const autoencoder = await tf.loadLayersModel('file://./models/autoencoder.json');
+           const mse = computeMSE(autoencoder, normalizeTelemetry(fraudulentTelemetry));
            expect(mse).to.be.above(0.15);
        });
        // ... other tests: low score, invalid VAA, CU usage, delay
@@ -789,18 +871,18 @@ Automates VAA delivery for ESG NFT bridging.
        const mint = await triggerNftMint(depositId.data.deposit_id, recipient);
        const vaa = await retrieveVaa(mint);
        const txHash = await submitVaaToEthereum(vaa);
-       await supabase.from('nft_bridges').insert({ tx_hash: txHash });
+       await supabase.from('nft_bridges').insert({ tx_hash: txHash, deposit_id: depositId.data.deposit_id });
    }
    ```
 
 4. **Test Scenarios**:
    - Valid workflow: Completes bridging.
-   - Fraudulent telemetry: Rejects via TF.js.
-   - Invalid telemetry: Fails validation.
-   - Low score: Rejects minting.
+   - Fraudulent telemetry: Rejects via TF.js (MSE > 0.15).
+   - Invalid telemetry: Fails validation (`InvalidAmount`).
+   - Low score: Rejects minting (`LowComplianceScore`).
    - Invalid VAA: Rejects Ethereum submission.
    - CU usage: Verifies <1.4M CUs.
-   - Network delay: Handles 5s latency.
+   - Network delay: Handles 5s VAA latency.
 
 ---
 
@@ -819,7 +901,7 @@ Automates VAA delivery for ESG NFT bridging.
 - **Wormhole**: Ensure payloads use `0x01` discriminator and `PROGRAM_ID`.
 - **Backend**: Rate limit API (100/day); restrict CORS to `http://localhost:5173`.
 - **Frontend**: Sanitize inputs to prevent XSS; use Supabase RLS for user-specific data.
-- **TF.js**: Verify model weights hash to avoid poisoning.
+- **TF.js**: Verify model weights hash to avoid poisoning; use secure CDN.
 - **General**: Monitor Wormhole Guardian risks (e.g., $320M exploit, 2022).<grok:render type="render_inline_citation"><argument name="citation_id">15</argument></grok:render>
 - Log errors to Supabase/Sentry for alerts.
 
@@ -827,7 +909,7 @@ Automates VAA delivery for ESG NFT bridging.
 
 ## Future Enhancements
 
-- **TensorFlow.js**: Add LSTM for time-series telemetry fraud or Isolation Forests for batch scoring.
+- **TensorFlow.js**: Add LSTM for time-series telemetry fraud or Isolation Forests for batch scoring.<grok:render type="render_inline_citation"><argument name="citation_id">1</argument></grok:render>
 - **Wormhole SDK**: Batch VAA submissions.
 - **Grafana**: Visualize fraud metrics, compliance scores, and bridging latency.
 - **Versioned Transactions**: Optimize Solana fees.
