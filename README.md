@@ -317,7 +317,7 @@ app.post('/api/rewards/deposit', async (req, res) => {
     return res.status(400).json({ error: 'Fraud detected' });
   }
   try {
-    const response = await axios.post('http://solana-program:8080/mint', telemetry); // Mock Solana endpoint
+    const response = await axios.post('http://polymers-program:8080/mint', telemetry); // Mock Solana endpoint
     await supabase.from('telemetry_logs').insert({ ...telemetry, deposit_id: response.data.deposit_id });
     res.json({ deposit_id: response.data.deposit_id });
   } catch (error) {
