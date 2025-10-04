@@ -65,8 +65,8 @@ Polymers Protocol's Reward System is a multi-tenant, AI-driven Solana program fo
 
 - **Rust**: ≥1.68
 - **Solana CLI**: ≥1.18
-- **Anchor CLI**: ≥0.30
-- **Node.js**: ≥18
+- **Anchor CLI**: ≥0.31.1
+- **Node.js**: ≥20
 - **Hardhat**: For Ethereum deployment
 - **Wormhole SDK**: For relayer and bridging
 - **Supabase CLI**: For analytics
@@ -87,7 +87,7 @@ yarn add @wormhole-foundation/sdk ethers axios typescript ts-node mocha chai
 
 1. **Clone Repository**:
    ```bash
-   git clone https://github.com/your-repo/polymers-rewards.git
+   git clone https://github.com/PolymersNetwork/polymers-rewards.git
    cd polymers-rewards
    yarn install
    ```
@@ -97,7 +97,7 @@ yarn add @wormhole-foundation/sdk ethers axios typescript ts-node mocha chai
    SOLANA_WALLET='[wallet_keypair]'
    PROGRAM_ID='YourSolanaProgramIdHere'
    WORMHOLE_PROGRAM='worm2ZoG2kUd4vFXhvjh5UUAA9nV4fV3nq3b3U8f8'
-   PLY_MINT='[ply_mint_address]'
+   PLY_MINT='PLYKdaCUgxTUw6rSjWbgSN97Qtecb6Fy6SazWf1tvAC'
    CARB_MINT='[carb_mint_address]'
    EWASTE_MINT='[ewaste_mint_address]'
    NFT_MINT='[nft_mint_address]'
