@@ -1,163 +1,199 @@
 # Polymers Protocol Rewards System
 
-Disclaimer: This documentation and code are sample/demo implementations only. The system has not been fully tested or audited. Do not deploy on mainnet without thorough testing, auditing, and security review. Use at your own risk.
+Status: Sample / Untested — Do not deploy to mainnet without testing and auditing.
 
-A multi-tenant, AI-driven rewards platform on Solana, designed to mint PLY, CARB, and EWASTE tokens based on IoT telemetry and ESG metrics. Supports cross-chain ESG NFT minting, multi-sig governance, real-time analytics, and automated monitoring.
-
-⚠️ Note: All code is provided for demonstration purposes. Adjust and test thoroughly before production use.
+A Solana-based rewards system that mints PLY, CARB, EWASTE tokens and ESG NFTs, calculates AI-driven compliance scores from IoT telemetry and ESG metrics, and bridges ESG NFTs to Ethereum via Wormhole.
 
 ⸻
 
-📁 Directory Structure
+Table of Contents
+	1.	Features
+	2.	Prerequisites
+	3.	Environment Setup
+	4.	Solana Program Deployment
+	5.	Ethereum Contract Deployment
+	6.	Usage / Example Inputs
+	7.	Test Scripts
+	8.	Workflow
+	9.	Security Considerations
+	10.	Disclaimer
 
-/programs/src
-├── lib.rs              # Main Solana program entry point
-├── errors.rs           # Custom error definitions
-├── state.rs            # Account structs (RewardVault, BatchDeposit, EsgMetrics)
-├── instructions
-│   ├── mod.rs          # Instruction module declaration
-│   ├── initialize.rs   # Initialize reward vault
-│   ├── approve_mint.rs # Multi-sig approval
-│   ├── mint_rewards.rs # Batch minting PLY, CARB, EWASTE tokens
-│   └── mint_nft.rs     # Cross-chain ESG NFT minting
-└── README.md           # Program documentation
+⸻
+
+Features
+	•	AI-Driven Compliance Scoring: Validates IoT telemetry and ESG metrics to calculate a compliance score.
+	•	Token Minting: Mint PLY, CARB, EWASTE tokens based on score.
+	•	NFT Minting: Mint ESG NFTs on Solana if compliance score ≥ 0.5.
+	•	Cross-Chain Bridging: Wormhole messages allow ESG NFTs to be minted on Ethereum as wrapped ERC-721.
+	•	Multi-Sig Governance: Approvals via approve_mint.rs before minting.
+	•	Analytics: Supabase integration for logging telemetry, mint events, and cross-chain activity.
+
+⸻
+
+Prerequisites
+	•	Rust ≥ 1.70
+	•	Solana CLI ≥ 1.18
+	•	Anchor CLI ≥ 0.30
+	•	Node.js ≥ 20 (for scripts)
+	•	Hardhat ≥ 2.20 (for Ethereum deployment)
+
+⸻
+
+Environment Setup
+
+Create a .env file:
+
+# Solana
+SOLANA_WALLET='[your_wallet_keypair]'
+PROGRAM_ID='YourProgramIdHere'
+
+# Wormhole
+WORMHOLE_PROGRAM='worm2ZoG2kUd4vFXhvjh5UUAA9nV4fV3nq3b3U8f8'
+ETHEREUM_WORMHOLE='0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B'
+
+# Token Mints
+PLY_MINT='[ply_mint_address]'
+CARB_MINT='[carb_mint_address]'
+EWASTE_MINT='[ewaste_mint_address]'
+NFT_MINT='[nft_mint_address]'
 
 
 ⸻
 
-🛠️ Key Components
+Solana Program Deployment
+	1.	Build the program:
 
-1. lib.rs
-	•	Program entry point; declares program ID.
-	•	Routes instructions:
-	•	initialize
-	•	approve_mint
-	•	mint_batch_rewards
-	•	mint_esg_nft
-
-2. errors.rs
-	•	Centralized error handling:
-	•	InsufficientApprovals
-	•	InvalidTelemetry
-	•	InvalidEsgMetrics
-	•	NftMintingFailed
-
-3. state.rs
-	•	Defines:
-	•	RewardVault – governance and token storage.
-	•	BatchDeposit – telemetry, multipliers, thresholds, and ESG metrics.
-	•	EsgMetrics – carbon offset and recyclability metrics.
-
-4. instructions/
-	•	Modular instruction logic:
-	•	initialize.rs – sets up the reward vault.
-	•	approve_mint.rs – multi-sig approval logic.
-	•	mint_rewards.rs – batch token minting with AI-driven compliance scoring.
-	•	mint_nft.rs – ESG NFT minting with events for cross-chain bridging.
-
-⚠️ Sample Warning: Logic is illustrative and has not been tested on Solana mainnet.
-
-⸻
-
-⚡ Features
-	•	AI-Driven Compliance Scoring – Calculates scores based on telemetry & ESG metrics.
-	•	Multi-Tenant Support – Partner-specific multipliers, thresholds, and reward tiers.
-	•	Multi-Sig Governance – ≥2 admin approvals required for token/NFT minting.
-	•	Cross-Chain Rewards – ESG NFTs can bridge to Ethereum via Wormhole events.
-	•	Telemetry & Analytics – Real-time dashboards via Supabase.
-	•	Secure & Automated – Telemetry validation, anomaly detection, and CI/CD integration.
-
-⚠️ Important: All calculations and cross-chain logic are for demo purposes only.
-
-⸻
-
-🚀 Setup & Deployment (Sample)
-	1.	Install Prerequisites
-Rust, Solana CLI, Anchor CLI, Node.js, Supabase CLI.
-	2.	Clone & Build
-
-git clone https://github.com/your-repo/polymers-rewards.git
-cd polymers-rewards
-npm install
 anchor build
 
-	3.	Configure Environment
+	2.	Deploy to devnet:
 
-export SOLANA_WALLET='[your_wallet_keypair]'
-export PROGRAM_ID='YourProgramIdHere'
-export PLY_MINT='[ply_mint_address]'
-export CARB_MINT='[carb_mint_address]'
-export EWASTE_MINT='[ewaste_mint_address]'
-export NFT_MINT='[nft_mint_address]'
+anchor deploy --provider.cluster devnet
 
-	4.	Deploy Program
+	3.	Initialize IDL:
 
-anchor deploy --provider.cluster mainnet
-anchor idl init --filepath target/idl/polymers_rewards.json $PROGRAM_ID --provider.cluster mainnet
+anchor idl init --filepath target/idl/polymers_rewards.json $PROGRAM_ID --provider.cluster devnet
 
-	5.	Initialize Vault
+	4.	Verify deployment:
 
-anchor run initialize --args reward_amount:1000
+solana program show $PROGRAM_ID
 
-⚠️ Reminder: Do not deploy to mainnet without testing; use solana-test-validator first.
 
 ⸻
 
-🧪 Testing (Sample)
-	•	Run Anchor tests:
+Ethereum Contract Deployment
+	1.	Install Hardhat (if not installed):
 
-solana-test-validator &
-anchor test
+npm install --save-dev hardhat
 
-	•	Suggested test scenarios:
-	•	Vault initialization
-	•	Multi-sig approvals
-	•	Batch token minting (valid/invalid telemetry)
-	•	ESG NFT minting (valid/invalid metrics)
+	2.	Deploy WrappedEsgNFT:
 
-⚠️ Sample Warning: Tests are illustrative; behavior on live network is untested.
+const { ethers } = require("hardhat");
 
-⸻
+async function main() {
+  const WrappedEsgNFT = await ethers.getContractFactory("WrappedEsgNFT");
+  const contract = await WrappedEsgNFT.deploy("0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B"); // Wormhole Core
+  await contract.deployed();
+  console.log("WrappedEsgNFT deployed to:", contract.address);
+}
 
-📈 Integration Points
-	•	API: /api/rewards/deposit queues validated BatchDeposit structs for minting.
-	•	Supabase: Stores telemetry, ESG metrics, reward logs, and analytics.
-	•	Dashboard: Visualizes token/NFT rewards, compliance, and ESG trends.
-	•	CI/CD: Automated testing, deployment, batch minting, backups.
-	•	Alerts: Error tracking via Sentry, Slack, or email.
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
 
-⚠️ Important: API integration logic is sample code.
+	3.	Verify deployment:
 
-⸻
+npx hardhat console --network goerli
+> const contract = await ethers.getContractAt("WrappedEsgNFT", "DEPLOYED_CONTRACT_ADDRESS")
 
-🌐 Cross-Chain Support
-	•	ESG NFTs minted on Solana emit events for bridging to Ethereum via Wormhole.
-	•	Future: Full Wormhole SDK integration for automated NFT bridging.
-
-⚠️ Demo Notice: Cross-chain integration is not implemented or tested.
 
 ⸻
 
-📝 Next Steps
-	1.	Cross-Chain NFT Integration
-Implement Wormhole SDK for Ethereum bridging.
-	2.	AI Anomaly Detection
-Predictive telemetry fraud detection with TensorFlow.js.
-	3.	Grafana Dashboards
-Real-time ESG metrics visualization using Supabase.
-	4.	OpenAPI Documentation
-Extend /api/rewards/deposit with NFT minting endpoints.
+Usage / Example Inputs
+
+1. Solana: Mint ESG NFT
+
+{
+  "target_chain": 2, // Ethereum
+  "recipient": "0xAbc123...EthereumAddress",
+  "metadata_uri": "https://example.com/nft_metadata.json"
+}
+
+2. IoT Telemetry + ESG Metrics
+
+{
+  "amount": 1000,
+  "contamination": 5,
+  "temperature": 25,
+  "carbon_offset": 50,
+  "recyclability": 80
+}
+
+Example Workflow:
+	1.	Submit telemetry via /api/rewards/deposit.
+	2.	validate_telemetry() → checks ranges.
+	3.	calculate_compliance_score() → returns score (0.85).
+	4.	Multi-sig approval via approve_mint.rs.
+	5.	Call mint_esg_nft() → emits Wormhole message.
+	6.	Ethereum completeTransfer(encodedVaa) → mints wrapped ERC-721 NFT.
 
 ⸻
 
-🤝 Contributing
-	1.	Fork repository.
-	2.	Create feature branch: git checkout -b feature/your-feature.
-	3.	Commit changes: git commit -m "Add feature".
-	4.	Push branch: git push origin feature/your-feature.
-	5.	Open a pull request.
+Test Scripts
+
+1. Solana Local Test
+
+solana-test-validator --reset
+anchor test --skip-deploy
+
+	•	Test validate_telemetry with valid and invalid inputs.
+	•	Test mint_esg_nft with score ≥0.5 and <0.5.
+	•	Verify emitted Wormhole message payload.
+
+2. Ethereum Test
+
+npx hardhat test
+
+	•	Simulate submitting VAA.
+	•	Verify completeTransfer mints NFT correctly.
+	•	Confirm ESG metadata is stored correctly.
 
 ⸻
 
-📧 Contact
-	•	GitHub issues or email: support@polymersprotocol.org
+Workflow Diagram
+
+flowchart TD
+    A[IoT Telemetry + ESG Metrics] --> B[validate_telemetry]
+    B --> C{Valid?}
+    C -- No --> D[Error: InvalidTelemetry / InvalidEsgMetrics]
+    C -- Yes --> E[calculate_compliance_score]
+    E --> F[Compute Reward Amounts]
+    F --> G{Score >= 0.5?}
+    G -- No --> H[No Rewards]
+    G -- Yes --> I[Multi-Sig Approval]
+    I --> J[Mint Tokens: PLY, CARB, EWASTE]
+    J --> K[mint_esg_nft]
+    K --> L[emit_wormhole_message]
+    L --> M[Guardians Sign VAA]
+    M --> N[Ethereum: completeTransfer → Mint Wrapped NFT]
+    N --> P[Supabase / Analytics]
+
+
+⸻
+
+Security Considerations
+	•	Validate telemetry before minting.
+	•	Verify compliance scoring thresholds.
+	•	Enforce multi-sig approvals.
+	•	Replay protection: ensure VAAs used only once.
+	•	Audit mint_nft.rs and WrappedEsgNFT.sol.
+	•	Monitor Wormhole Guardians network for centralization risks.
+
+⸻
+
+Disclaimer
+
+⚠️ This is a sample/untested implementation.
+	•	Do not deploy to mainnet without proper testing and audits.
+	•	AI compliance scoring and cross-chain bridging are illustrative.
+	•	Developer discretion required for production use.
